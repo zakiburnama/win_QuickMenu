@@ -1,0 +1,69 @@
+#Requires AutoHotkey v2.0
+#SingleInstance Force
+
+; QuickMenu Light -- versi native AHK murni, tanpa WebView2/HTML sama sekali.
+; Fungsinya identik dengan quickmenu.ahk, tapi tampil instan karena tidak perlu
+; nyalain proses browser terpisah tiap kali di-launch. Tampilan lebih sederhana
+; (ListBox biasa), tapi jauh lebih ringan & cepat -- cocok kalau kecepatan lebih
+; penting daripada tampilan custom.
+
+items := ["Close All Windows", "Open Terminal", "Lock PC", "Sleep"]
+
+ShowMenu()
+
+ShowMenu() {
+    global items
+
+    myGui := Gui("+AlwaysOnTop -Caption +ToolWindow", "QuickMenu Light")
+    myGui.BackColor := "1e1e2e"
+    myGui.MarginX := 8, myGui.MarginY := 8
+    myGui.SetFont("s11 cCDD6F4", "Segoe UI")
+    myGui.OnEvent("Escape", (*) => ExitApp())
+    myGui.OnEvent("Close", (*) => ExitApp())
+
+    lb := myGui.Add("ListBox", "w300 r" items.Length " Background2A2A3C -0x800000", items)
+    lb.Choose(1)
+
+    ; Enter tidak punya event bawaan di ListBox, jadi tangkap manual --
+    ; discope ke window ini saja lewat HotIfWinActive supaya tidak
+    ; mengganggu Enter di aplikasi lain.
+    HotIfWinActive("ahk_id " myGui.Hwnd)
+    Hotkey("Enter", (*) => RunAction(myGui, lb.Text))
+    Hotkey("NumpadEnter", (*) => RunAction(myGui, lb.Text))
+    HotIfWinActive()
+
+    ; PENTING: hitung ukuran window dari GetPos control-nya SEBELUM Show(),
+    ; lalu kasih w/h/x/y eksplisit sekaligus ke Show(). Pola "Show(AutoSize)"
+    ; lalu baca GetPos/Move belakangan sempat bikin window ke-render dulu di
+    ; posisi lain, jadi hasil "center"-nya salah (window sempat muncul di
+    ; sembarang posisi lalu baru pindah, kadang keburu ke-capture di posisi awal).
+    lb.GetPos(, , &lbW, &lbH)
+    w := lbW + myGui.MarginX * 2
+    h := lbH + myGui.MarginY * 2
+    x := (A_ScreenWidth - w) / 2
+    y := (A_ScreenHeight - h) / 2
+
+    myGui.Show("w" w " h" h " x" x " y" y)
+    lb.Focus()
+}
+
+RunAction(myGui, item) {
+    ; PENTING: destroy window kita SENDIRI dulu sebelum "Close All Windows"
+    ; jalan. WinClose() sendiri (bukan Destroy()) di bawah triggers event
+    ; "Close" yang kita daftarkan di atas -- kalau window kita masih ada saat
+    ; WinGetList() dipanggil, dia bisa ikut ke-WinClose duluan, memicu
+    ; ExitApp() instan, dan motong loop sebelum sempat nutup window lain.
+    myGui.Destroy()
+    switch item {
+        case "Close All Windows":
+            for win in WinGetList()
+                WinClose(win)
+        case "Open Terminal":
+            Run("*RunAs wt.exe")
+        case "Lock PC":
+            DllCall("LockWorkStation")
+        case "Sleep":
+            DllCall("PowrProf\SetSuspendState", "Int", 0, "Int", 0, "Int", 0)
+    }
+    ExitApp()
+}

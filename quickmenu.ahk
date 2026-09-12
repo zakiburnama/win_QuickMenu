@@ -90,7 +90,9 @@ HandleMessage(msg, guiObj) {
             for win in WinGetList()
                 WinClose(win)
         case "Open Terminal":
-            Run("wt.exe")
+            ; *RunAs -- munculkan UAC prompt karena QuickMenu.exe sendiri jalan
+            ; tidak elevated, jadi elevasi cuma bisa lewat dialog itu.
+            Run("*RunAs wt.exe")
         case "Lock PC":
             DllCall("LockWorkStation")
         case "Sleep":
