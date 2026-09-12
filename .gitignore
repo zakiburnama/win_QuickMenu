@@ -1,5 +1,6 @@
 # Build output
 QuickMenu.exe
+QuickMenuLight.exe
 
 # WebView2 runtime profile/cache (generated on first run)
 WebView2Data/
