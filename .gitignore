@@ -1,0 +1,9 @@
+# Build output
+QuickMenu.exe
+
+# WebView2 runtime profile/cache (generated on first run)
+WebView2Data/
+
+# Claude Code local state
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
