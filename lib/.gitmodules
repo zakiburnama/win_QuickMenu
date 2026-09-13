@@ -1,3 +1,0 @@
-[submodule "winrt"]
-	path = winrt
-	url = git@github.com:thqby/winrt.ahk.git
