@@ -2,33 +2,93 @@
 #SingleInstance Force
 
 ; QuickMenu Light -- versi native AHK murni, tanpa WebView2/HTML sama sekali.
-; Fungsinya identik dengan quickmenu.ahk, tapi tampil instan karena tidak perlu
-; nyalain proses browser terpisah tiap kali di-launch. Tampilan lebih sederhana
-; (ListBox biasa), tapi jauh lebih ringan & cepat -- cocok kalau kecepatan lebih
-; penting daripada tampilan custom.
+; Tampil instan (tidak perlu nyalain proses browser terpisah). Tampilan retro
+; pixel-art dengan font raster "Terminal" (bawaan Windows, tanpa file
+; tambahan) dan seleksi warna terbalik + kursor ">" ala menu game jadul.
+; Fungsinya identik dengan quickmenu.ahk.
+
+; Ganti nilai ini ke salah satu key di THEMES (di bawah) buat pindah color
+; scheme -- semua palet lain tetap tersimpan, tidak perlu comment/uncomment.
+ACTIVE_THEME := "amber"
+
+; bg/fg = warna normal (background/teks); selBg/selFg = warna item terpilih
+; (biasanya kebalikan dari bg/fg -- "reverse video" ala terminal jadul);
+; bezel = warna window di sekeliling item (lihat myGui.BackColor di ShowMenu).
+THEMES := Map(
+    "game_boy", { bg: "9BBC0F", fg: "0F380F", selBg: "0F380F", selFg: "9BBC0F", bezel: "0F380F" },
+    "vintage",  { bg: "F4E9D8", fg: "3E2C23", selBg: "3E2C23", selFg: "F4E9D8", bezel: "3E2C23" },
+    "amber",    { bg: "1A0F00", fg: "FFB000", selBg: "FFB000", selFg: "1A0F00", bezel: "FFB000" },
+    "green_term", { bg: "0A0A0A", fg: "33FF33", selBg: "33FF33", selFg: "0A0A0A", bezel: "33FF33" },
+)
 
 items := ["Close All Windows", "Open Terminal", "Open WezTerm", "Lock PC", "Sleep"]
 
 ShowMenu()
 
 ShowMenu() {
-    global items
+    global items, THEMES, ACTIVE_THEME
+    theme := THEMES[ACTIVE_THEME]
+
+    margin := 6
+    itemH := 26
+    w := 300
+    contentW := w - margin * 2
+    h := items.Length * itemH + margin * 2
 
     myGui := Gui("+AlwaysOnTop -Caption +ToolWindow", "QuickMenu Light")
-    myGui.BackColor := "1e1e2e"
-    myGui.MarginX := 8, myGui.MarginY := 8
-    myGui.SetFont("s11 cCDD6F4", "Segoe UI")
+    ; BackColor dipakai sebagai "bezel" di sekeliling item -- Text control di
+    ; bawah cuma nutup area x/y=margin..w/h-margin, sisanya nampilin ini.
+    myGui.BackColor := theme.bezel
     myGui.OnEvent("Close", (*) => ExitApp())
 
-    lb := myGui.Add("ListBox", "w300 r" items.Length " Background2A2A3C -0x800000", items)
-    lb.Choose(1)
+    state := { selected: 1 }
+    ctrls := []
+    for i, text in items {
+        y := margin + (i - 1) * itemH
+        ; 0x200 = SS_CENTERIMAGE, biar teks center vertikal di baris masing-masing.
+        ctrl := myGui.Add("Text", "x" margin " y" y " w" contentW " h" itemH " 0x200", text)
+        ctrl.OnEvent("Click", OnItemClick)
+        ctrls.Push(ctrl)
+    }
 
-    ; Enter tidak punya event bawaan di ListBox, jadi tangkap manual --
-    ; discope ke window ini saja lewat HotIfWinActive supaya tidak
-    ; mengganggu Enter di aplikasi lain.
+    Render() {
+        for i, ctrl in ctrls {
+            if i = state.selected {
+                ctrl.SetFont("s10 c" theme.selFg, "Terminal")
+                ctrl.Opt("Background" theme.selBg)
+                ctrl.Text := "> " items[i]
+            } else {
+                ctrl.SetFont("s10 c" theme.fg, "Terminal")
+                ctrl.Opt("Background" theme.bg)
+                ctrl.Text := "  " items[i]
+            }
+        }
+    }
+    Render()
+
+    OnItemClick(ctrlObj, *) {
+        for i, c in ctrls {
+            if c = ctrlObj {
+                state.selected := i
+                Render()
+                return
+            }
+        }
+    }
+
+    MoveSelection(delta) {
+        state.selected := Mod(state.selected - 1 + delta + items.Length, items.Length) + 1
+        Render()
+    }
+
+    ; Up/Down/Enter ditangkap manual (Text control bukan ListBox, tidak ada
+    ; navigasi bawaan) -- discope ke window ini saja lewat HotIfWinActive
+    ; supaya tidak mengganggu tombol yang sama di aplikasi lain.
     HotIfWinActive("ahk_id " myGui.Hwnd)
-    Hotkey("Enter", (*) => RunAction(myGui, lb.Text))
-    Hotkey("NumpadEnter", (*) => RunAction(myGui, lb.Text))
+    Hotkey("Up", (*) => MoveSelection(-1))
+    Hotkey("Down", (*) => MoveSelection(1))
+    Hotkey("Enter", (*) => RunAction(myGui, items[state.selected]))
+    Hotkey("NumpadEnter", (*) => RunAction(myGui, items[state.selected]))
     HotIfWinActive()
 
     ; Popup ala mobile/web: cuma Arrow Up/Down & Enter yang "diterima" input --
@@ -56,19 +116,9 @@ ShowMenu() {
             ExitApp()
     }
 
-    ; PENTING: hitung ukuran window dari GetPos control-nya SEBELUM Show(),
-    ; lalu kasih w/h/x/y eksplisit sekaligus ke Show(). Pola "Show(AutoSize)"
-    ; lalu baca GetPos/Move belakangan sempat bikin window ke-render dulu di
-    ; posisi lain, jadi hasil "center"-nya salah (window sempat muncul di
-    ; sembarang posisi lalu baru pindah, kadang keburu ke-capture di posisi awal).
-    lb.GetPos(, , &lbW, &lbH)
-    w := lbW + myGui.MarginX * 2
-    h := lbH + myGui.MarginY * 2
     x := (A_ScreenWidth - w) / 2
     y := (A_ScreenHeight - h) / 2
-
     myGui.Show("w" w " h" h " x" x " y" y)
-    lb.Focus()
 }
 
 RunAction(myGui, item) {
@@ -86,9 +136,6 @@ RunAction(myGui, item) {
         case "Open Terminal":
             Run("*RunAs wt.exe")
         case "Open WezTerm":
-            ; wezterm.exe (bukan wezterm-gui.exe) adalah console-subsystem launcher
-            ; yang nge-spawn wezterm-gui.exe di baliknya -- muncul console kosong
-            ; nempel & ikut ke-close bareng. Panggil wezterm-gui.exe langsung.
             Run("wezterm-gui")
         case "Lock PC":
             DllCall("LockWorkStation")

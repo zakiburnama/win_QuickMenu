@@ -6,11 +6,11 @@ There are two implementations, sharing the same actions and the same launch-on-d
 
 | | [QuickMenu](quickmenu.ahk) | [QuickMenu Light](quickmenu_light.ahk) |
 |---|---|---|
-| UI | WebView2 (HTML/CSS/JS, [menu.html](menu.html)) | Native AHK `Gui`/`ListBox` |
-| Look | Custom dark theme, rounded corners | Plain, minimal, system-drawn |
+| UI | WebView2 (HTML/CSS/JS, [menu.html](menu.html)) | Native AHK `Gui`/`Text` controls |
+| Look | Custom dark theme, rounded corners | Retro pixel-art, switchable color themes (see below) |
 | Startup | Noticeable delay — spins up a Chromium (`msedgewebview2.exe`) instance from scratch every launch | Instant — no separate process |
 | Dependencies | `lib\` (thqby/ahk2_lib) + WebView2 Runtime | None — single-file exe |
-| Customize UI via | HTML/CSS in `menu.html` | AHK `Gui` control options |
+| Customize UI via | HTML/CSS in `menu.html` | `THEMES`/`ACTIVE_THEME` in `quickmenu_light.ahk` |
 
 Use **QuickMenu** when you want to keep tweaking the look. Use **QuickMenu Light** when speed matters more than styling — e.g. as the one that's actually wired to your hotkey day-to-day.
 
@@ -18,7 +18,7 @@ Use **QuickMenu** when you want to keep tweaking the look. Use **QuickMenu Light
 
 - **AutoHotkey v2** creates a small, borderless, always-on-top window and hosts the UI.
 - **QuickMenu** renders the menu as plain HTML/CSS/JS via **WebView2** ([thqby/ahk2_lib](https://github.com/thqby/ahk2_lib)) instead of a native control, so it can look like a proper custom dark-themed popup. The HTML side sends the selected action back to AHK via `window.chrome.webview.postMessage(...)`.
-- **QuickMenu Light** skips WebView2 entirely and uses a native `ListBox` control — arrow-key navigation comes for free from Windows, Enter is caught directly in AHK.
+- **QuickMenu Light** skips WebView2 entirely and draws its own list out of native `Text` controls (retro pixel-art look, reverse-video selection + a `>` cursor like an old game menu) — Up/Down/Enter are all caught directly in AHK via `Hotkey`/`HotIfWinActive`, since a plain `Text` control has no built-in navigation.
 - Both are **launched fresh on demand, with no persistent background process or hotkey listener**. The exe is launched by Lenovo Vantage's "User Defined Key" feature whenever the assigned key is pressed, shows the popup, runs the chosen action, and exits — nothing lingers in the background between presses.
 - Both dismiss like a mobile/web popup: **only Up/Down/Enter are "accepted" input** — any other key (Escape included, the Windows key, anything) closes the menu without running an action, and so does clicking outside the popup or otherwise losing focus.
 
@@ -60,6 +60,23 @@ Both versions run the same five actions — `HandleMessage()` in [quickmenu.ahk]
 To add or change an item:
 - **QuickMenu**: edit the `items` array in [menu.html](menu.html) and the matching `case` in `HandleMessage()`.
 - **QuickMenu Light**: edit the `items` array and the matching `case` in `RunAction()`, both in [quickmenu_light.ahk](quickmenu_light.ahk).
+
+## QuickMenu Light color themes
+
+Colors live in one place: the `THEMES` map at the top of [quickmenu_light.ahk](quickmenu_light.ahk:17). Switch the active look by changing `ACTIVE_THEME` to one of the keys — nothing else in the file needs touching:
+
+```ahk
+ACTIVE_THEME := "amber"  ; "game_boy" | "vintage" | "amber" | "green_term"
+```
+
+| Theme | Look |
+|---|---|
+| `game_boy` | Classic DMG Game Boy 4-shade green |
+| `vintage` | Warm cream paper / dark brown ink |
+| `amber` | Amber CRT terminal (black bg, amber text) |
+| `green_term` | Phosphor-green CRT terminal |
+
+Each theme is `{ bg, fg, selBg, selFg, bezel }` — normal background/text, selected-item background/text (reverse-video, like an old terminal menu highlight), and the window's own background color (shows as a thin border/bezel around the item list). Add a new theme by adding another entry to the map with those five hex colors (no `#` prefix). The font itself is the classic Windows raster font `Terminal`, chosen specifically because it renders as blocky pixels at small sizes with zero extra files — change the font name/size in `Render()` if you want something else.
 
 ## Running it
 
