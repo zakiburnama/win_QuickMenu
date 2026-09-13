@@ -22,7 +22,7 @@ ShowMenu() {
     ; Ukuran & posisi (tengah layar). Show() duluan sebelum bikin WebView2
     ; controller (sama seperti contoh resmi WebView2.create()) supaya window
     ; sudah punya ukuran fisik yang pasti sebelum kita baca GetClientRect di bawah.
-    w := 320, h := 220
+    w := 320, h := 260
     x := (A_ScreenWidth - w) / 2
     y := (A_ScreenHeight - h) / 2
     myGui.Show("w" w " h" h " x" x " y" y)
@@ -85,6 +85,13 @@ ShowMenu() {
 
 HandleMessage(msg, guiObj) {
     guiObj.Destroy()
+    ; PENTING: aksi ini jalan dari callback WebMessageReceived (IPC dari proses
+    ; browser WebView2), bukan dari input keyboard proses AHK ini secara langsung
+    ; -- Windows tidak otomatis kasih hak "foreground" ke app baru yang di-Run()
+    ; dari konteks begini, jadi app-nya kebuka di belakang taskbar. AllowSetForeground-
+    ; Window gagal (proses kita sendiri juga tidak punya hak itu buat diteruskan) --
+    ; WinWait + WinActivate lebih ampuh karena AHK punya trik internal (attach thread
+    ; input dsb) buat maksa activate walau kena restriction ini.
     switch msg {
         case "Close All Windows":
             for win in WinGetList()
@@ -93,6 +100,15 @@ HandleMessage(msg, guiObj) {
             ; *RunAs -- munculkan UAC prompt karena QuickMenu.exe sendiri jalan
             ; tidak elevated, jadi elevasi cuma bisa lewat dialog itu.
             Run("*RunAs wt.exe")
+            if WinWait("ahk_exe WindowsTerminal.exe",, 3)
+                WinActivate("ahk_exe WindowsTerminal.exe")
+        case "Open WezTerm":
+            ; wezterm.exe (bukan wezterm-gui.exe) adalah console-subsystem launcher
+            ; yang nge-spawn wezterm-gui.exe di baliknya -- muncul console kosong
+            ; nempel & ikut ke-close bareng. Panggil wezterm-gui.exe langsung.
+            Run("wezterm-gui",, , &pid)
+            if WinWait("ahk_pid " pid,, 3)
+                WinActivate("ahk_pid " pid)
         case "Lock PC":
             DllCall("LockWorkStation")
         case "Sleep":

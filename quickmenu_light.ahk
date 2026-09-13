@@ -7,7 +7,7 @@
 ; (ListBox biasa), tapi jauh lebih ringan & cepat -- cocok kalau kecepatan lebih
 ; penting daripada tampilan custom.
 
-items := ["Close All Windows", "Open Terminal", "Lock PC", "Sleep"]
+items := ["Close All Windows", "Open Terminal", "Open WezTerm", "Lock PC", "Sleep"]
 
 ShowMenu()
 
@@ -60,6 +60,11 @@ RunAction(myGui, item) {
                 WinClose(win)
         case "Open Terminal":
             Run("*RunAs wt.exe")
+        case "Open WezTerm":
+            ; wezterm.exe (bukan wezterm-gui.exe) adalah console-subsystem launcher
+            ; yang nge-spawn wezterm-gui.exe di baliknya -- muncul console kosong
+            ; nempel & ikut ke-close bareng. Panggil wezterm-gui.exe langsung.
+            Run("wezterm-gui")
         case "Lock PC":
             DllCall("LockWorkStation")
         case "Sleep":

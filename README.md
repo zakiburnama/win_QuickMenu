@@ -46,12 +46,13 @@ quickmenu/
 
 ## Actions
 
-Both versions run the same four actions — `HandleMessage()` in [quickmenu.ahk](quickmenu.ahk:86), `RunAction()` in [quickmenu_light.ahk](quickmenu_light.ahk:41):
+Both versions run the same five actions — `HandleMessage()` in [quickmenu.ahk](quickmenu.ahk:86), `RunAction()` in [quickmenu_light.ahk](quickmenu_light.ahk:41):
 
 | Menu item | Action |
 |---|---|
 | Close All Windows | Closes every open window (`WinClose` over `WinGetList()`) |
 | Open Terminal | Launches Windows Terminal elevated (`Run("*RunAs wt.exe")`) — triggers a UAC prompt since QuickMenu itself runs unelevated |
+| Open WezTerm | Launches WezTerm (`Run("wezterm-gui")` — not `wezterm.exe`, see gotchas below) |
 | Lock PC | Locks the workstation (`LockWorkStation`) |
 | Sleep | Suspends the machine (`SetSuspendState`) |
 
@@ -96,6 +97,10 @@ Getting WebView2 to render reliably inside an AHK v2 Gui took several non-obviou
 - After compiling, pass `WebView2Loader.dll`'s path explicitly — the library's own auto-detection relies on `A_LineFile`, which breaks once `#Include`d files are merged into one exe.
 - `wvc.Bounds` should come from the window's real `GetClientRect` (physical pixels), not from the logical width/height passed to `Gui.Show()` — DPI scaling can otherwise leave the WebView2 content smaller than the window.
 - `wvc.DefaultBackgroundColor` must be set explicitly (opaque, matching the theme) or the CSS `border-radius` corners show WebView2's default white background instead of what's behind them.
+
+Two more that apply to both versions:
+- `wezterm.exe` is a console-subsystem launcher that spawns `wezterm-gui.exe` behind it, leaving a stray console window that closes together with the terminal. Launch `wezterm-gui.exe` directly.
+- In QuickMenu (WebView2), actions run from the `WebMessageReceived` callback (an IPC hop from the browser process) don't carry the right to grant a newly `Run()`-launched app the Windows foreground — it opens behind other windows and `AllowSetForegroundWindow` can't fix it (this process doesn't hold the foreground right itself, so it has nothing to hand off). `WinWait` for the new window then `WinActivate` it explicitly instead. QuickMenu Light doesn't need this — its actions run directly from an AHK-native hotkey callback, which does retain the right.
 
 ## Credits
 
