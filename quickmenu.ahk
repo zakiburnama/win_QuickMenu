@@ -81,9 +81,30 @@ ShowMenu() {
     wv.add_WebMessageReceived((ctrl, args) => HandleMessage(args.TryGetWebMessageAsString(), myGui))
 
     wvc.MoveFocus(WebView2.MOVE_FOCUS_REASON.PROGRAMMATIC)  ; pastikan keyboard focus masuk ke konten WebView2
+
+    ; Popup ala mobile/web: klik/pindah fokus ke luar window langsung menutup
+    ; menu. (Aturan "cuma Arrow Up/Down & Enter yang diterima input" ditangani
+    ; di menu.html, bukan di sini -- keyboard di dalam WebView2 punya jalur
+    ; pemrosesan sendiri di Chromium yang TIDAK selalu lewat message queue AHK
+    ; biasa, jadi OnMessage(WM_KEYDOWN) di level ini terbukti tidak reliable.)
+    myGui.Closing := false
+    readyTick := A_TickCount
+    OnMessage(0x0006, CloseOnDeactivate) ; WM_ACTIVATE
+
+    CloseOnDeactivate(wParam, lParam, msg, hwnd) {
+        ; abaikan sesaat pas baru muncul -- hindari WM_ACTIVATE awal yang keburu
+        ; nembak inactive sebelum window benar-benar settle jadi foreground.
+        ; myGui.Closing juga dicek -- guiObj.Destroy() di HandleMessage() di bawah
+        ; memicu WM_ACTIVATE(inactive) balik ke sini secara reentrant; tanpa guard
+        ; ini, ExitApp() kepanggil duluan SEBELUM aksi (Run/DllCall dsb) sempat
+        ; jalan -- gejalanya: pilih menu, langsung ke-close, tanpa aksi apapun terjadi.
+        if !myGui.Closing && (wParam & 0xFFFF) = 0 && (A_TickCount - readyTick > 200)
+            ExitApp()
+    }
 }
 
 HandleMessage(msg, guiObj) {
+    guiObj.Closing := true
     guiObj.Destroy()
     ; PENTING: aksi ini jalan dari callback WebMessageReceived (IPC dari proses
     ; browser WebView2), bukan dari input keyboard proses AHK ini secara langsung

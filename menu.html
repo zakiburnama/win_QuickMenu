@@ -56,11 +56,13 @@
     window.chrome.webview.postMessage(items[selected]);
   }
 
+  // Popup ala mobile/web: cuma Arrow Up/Down & Enter yang "diterima" input --
+  // tombol lain apapun (termasuk Escape) langsung menutup menu.
   window.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowDown') { selected = (selected + 1) % items.length; render(); }
     else if (e.key === 'ArrowUp') { selected = (selected - 1 + items.length) % items.length; render(); }
     else if (e.key === 'Enter') { execute(); }
-    else if (e.key === 'Escape') { window.chrome.webview.postMessage('__CANCEL__'); }
+    else { window.chrome.webview.postMessage('__CANCEL__'); }
   });
 
   render();

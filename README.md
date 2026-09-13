@@ -18,8 +18,9 @@ Use **QuickMenu** when you want to keep tweaking the look. Use **QuickMenu Light
 
 - **AutoHotkey v2** creates a small, borderless, always-on-top window and hosts the UI.
 - **QuickMenu** renders the menu as plain HTML/CSS/JS via **WebView2** ([thqby/ahk2_lib](https://github.com/thqby/ahk2_lib)) instead of a native control, so it can look like a proper custom dark-themed popup. The HTML side sends the selected action back to AHK via `window.chrome.webview.postMessage(...)`.
-- **QuickMenu Light** skips WebView2 entirely and uses a native `ListBox` control — arrow-key navigation comes for free from Windows, Enter/Escape are caught directly in AHK.
-- Both are **launched fresh on demand, with no persistent background process or hotkey listener**. The exe is launched by Lenovo Vantage's "User Defined Key" feature whenever the assigned key is pressed, shows the popup, runs the chosen action (or does nothing on Esc), and exits — nothing lingers in the background between presses.
+- **QuickMenu Light** skips WebView2 entirely and uses a native `ListBox` control — arrow-key navigation comes for free from Windows, Enter is caught directly in AHK.
+- Both are **launched fresh on demand, with no persistent background process or hotkey listener**. The exe is launched by Lenovo Vantage's "User Defined Key" feature whenever the assigned key is pressed, shows the popup, runs the chosen action, and exits — nothing lingers in the background between presses.
+- Both dismiss like a mobile/web popup: **only Up/Down/Enter are "accepted" input** — any other key (Escape included, the Windows key, anything) closes the menu without running an action, and so does clicking outside the popup or otherwise losing focus.
 
 ## Requirements
 

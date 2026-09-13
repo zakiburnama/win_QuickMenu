@@ -18,7 +18,6 @@ ShowMenu() {
     myGui.BackColor := "1e1e2e"
     myGui.MarginX := 8, myGui.MarginY := 8
     myGui.SetFont("s11 cCDD6F4", "Segoe UI")
-    myGui.OnEvent("Escape", (*) => ExitApp())
     myGui.OnEvent("Close", (*) => ExitApp())
 
     lb := myGui.Add("ListBox", "w300 r" items.Length " Background2A2A3C -0x800000", items)
@@ -31,6 +30,31 @@ ShowMenu() {
     Hotkey("Enter", (*) => RunAction(myGui, lb.Text))
     Hotkey("NumpadEnter", (*) => RunAction(myGui, lb.Text))
     HotIfWinActive()
+
+    ; Popup ala mobile/web: cuma Arrow Up/Down & Enter yang "diterima" input --
+    ; tombol lain apapun (Esc, tombol Windows, dll) atau klik/pindah fokus ke
+    ; luar window langsung menutup menu.
+    myGui.Closing := false
+    readyTick := A_TickCount
+    OnMessage(0x0100, CloseOnOtherKey)   ; WM_KEYDOWN
+    OnMessage(0x0006, CloseOnDeactivate) ; WM_ACTIVATE
+
+    CloseOnOtherKey(wParam, lParam, msg, hwnd) {
+        static allowed := Map(38, 1, 40, 1, 13, 1)  ; VK_UP, VK_DOWN, VK_RETURN
+        if !myGui.Closing && !allowed.Has(wParam)
+            ExitApp()
+    }
+
+    CloseOnDeactivate(wParam, lParam, msg, hwnd) {
+        ; abaikan sesaat pas baru muncul -- hindari WM_ACTIVATE awal yang keburu
+        ; nembak inactive sebelum window benar-benar settle jadi foreground.
+        ; myGui.Closing juga dicek -- Destroy() di RunAction() di bawah memicu
+        ; WM_ACTIVATE(inactive) balik ke sini secara reentrant; tanpa guard ini,
+        ; ExitApp() kepanggil duluan SEBELUM aksi (Run/DllCall dsb) sempat jalan --
+        ; gejalanya: pilih menu, langsung ke-close, tanpa aksi apapun terjadi.
+        if !myGui.Closing && (wParam & 0xFFFF) = 0 && (A_TickCount - readyTick > 200)
+            ExitApp()
+    }
 
     ; PENTING: hitung ukuran window dari GetPos control-nya SEBELUM Show(),
     ; lalu kasih w/h/x/y eksplisit sekaligus ke Show(). Pola "Show(AutoSize)"
@@ -53,6 +77,7 @@ RunAction(myGui, item) {
     ; "Close" yang kita daftarkan di atas -- kalau window kita masih ada saat
     ; WinGetList() dipanggil, dia bisa ikut ke-WinClose duluan, memicu
     ; ExitApp() instan, dan motong loop sebelum sempat nutup window lain.
+    myGui.Closing := true
     myGui.Destroy()
     switch item {
         case "Close All Windows":
