@@ -10,7 +10,7 @@ A rofi-style quick action popup for Windows, built entirely in native AutoHotkey
 - Retro pixel-art look: reverse-video selection (inverted background/text) plus a `>` cursor, like an old game or terminal menu. Colors are switchable — see [Color themes](#color-themes) below.
 - Up/Down/Enter are caught directly via `Hotkey`/`HotIfWinActive`, scoped to just this window.
 - **Launched fresh on demand, with no persistent background process or hotkey listener.** `QuickMenuLight.exe` is launched by Lenovo Vantage's "User Defined Key" feature whenever the assigned key is pressed, shows the popup, runs the chosen action, and exits — nothing lingers in the background between presses.
-- Dismisses like a mobile/web popup: **only Up/Down/Enter are "accepted" input** — any other key (Escape included, the Windows key, anything) closes the menu without running an action, and so does clicking outside the popup or otherwise losing focus.
+- Dismisses like a mobile/web popup: **only Up/Down/Enter are "accepted" input** — any other key or clicking outside the popup closes it without running an action. Escape is the one exception: inside the Color Scheme submenu it steps back to the main menu instead of closing outright; pressed again from the main menu, it closes like everything else.
 
 ## Requirements
 
@@ -23,14 +23,15 @@ That's it — no runtime, no vendored library, no extra font files.
 
 ```
 quickmenu/
-├── quickmenu_light.ahk   # the whole app: GUI, theming, keyboard handling, actions
-├── QuickMenuLight.exe    # compiled build (see Running it below) — a genuine single file
+├── quickmenu_light.ahk      # the whole app: GUI, theming, keyboard handling, actions
+├── QuickMenuLight.exe       # compiled build (see Running it below) — a genuine single file
+├── quickmenu_settings.ini   # remembers your chosen color scheme — created on first use, gitignored
 └── .gitignore
 ```
 
 ## Actions
 
-Defined in `RunAction()` in [quickmenu_light.ahk](quickmenu_light.ahk:124):
+Defined in `RunAction()` in [quickmenu_light.ahk](quickmenu_light.ahk:190):
 
 | Menu item | Action |
 |---|---|
@@ -39,16 +40,13 @@ Defined in `RunAction()` in [quickmenu_light.ahk](quickmenu_light.ahk:124):
 | Open WezTerm | Launches WezTerm (`Run("wezterm-gui")` — not `wezterm.exe`, see [Gotchas](#gotchas) below) |
 | Lock PC | Locks the workstation (`LockWorkStation`) |
 | Sleep | Suspends the machine (`SetSuspendState`) |
+| Color Scheme | Opens the theme picker described below |
 
-To add or change an item, edit the `items` array and the matching `case` in `RunAction()`.
+To add or change an item, edit the `baseItems` array and the matching `case` in `RunAction()`.
 
 ## Color themes
 
-Colors live in one place: the `THEMES` map at the top of [quickmenu_light.ahk](quickmenu_light.ahk:17). Switch the active look by changing `ACTIVE_THEME` to one of the keys — nothing else in the file needs touching:
-
-```ahk
-ACTIVE_THEME := "amber"  ; "game_boy" | "vintage" | "amber" | "green_term"
-```
+Selecting **Color Scheme** from the menu opens a submenu of the available themes. Pick one with Up/Down + Enter and it applies **immediately, live** — the submenu stays open so you can flip through a few before settling on one — and is written to `quickmenu_settings.ini` next to the exe, so it's remembered the next time QuickMenu Light opens. Press Escape to step back to the main menu, or Escape again (or any other key, or clicking outside) to close.
 
 | Theme | Look |
 |---|---|
@@ -57,7 +55,7 @@ ACTIVE_THEME := "amber"  ; "game_boy" | "vintage" | "amber" | "green_term"
 | `amber` | Amber CRT terminal (black bg, amber text) |
 | `green_term` | Phosphor-green CRT terminal |
 
-Each theme is `{ bg, fg, selBg, selFg, bezel }` — normal background/text, selected-item background/text (reverse-video, like an old terminal menu highlight), and the window's own background color (shows as a thin border/bezel around the item list). Add a new theme by adding another entry to the map with those five hex colors (no `#` prefix).
+To add a new theme, add an entry to the `THEMES` map and its name to `THEME_NAMES` at the top of [quickmenu_light.ahk](quickmenu_light.ahk:13) — it'll show up in the picker automatically. Each theme is `{ bg, fg, selBg, selFg, bezel }`: normal background/text, selected-item background/text (reverse-video, like an old terminal menu highlight), and the window's own background color (shows as a thin border/bezel around the item list) — all hex, no `#` prefix.
 
 The font is the classic Windows raster font `Terminal`, chosen specifically because it renders as blocky pixels at small sizes with zero extra files — change the font name/size in `Render()` if you want something else.
 
@@ -93,3 +91,4 @@ A few non-obvious fixes that shaped this file, in case you're extending it:
 - **"Close All Windows" closing nothing**: the popup's own Gui window is itself in `WinGetList()` while it's still open. If it gets `WinClose()`d as part of the loop, that fires the `Close` event and calls `ExitApp()` immediately, cutting the loop short before any *other* window closes. Fix: call `myGui.Destroy()` first — `Destroy()`, unlike `WinClose()`, doesn't fire the `Close` event.
 - **`wezterm.exe` is a console-subsystem launcher**, not the GUI app — running it directly leaves a visible console window behind `wezterm-gui.exe` that closes together with the terminal. Launch `wezterm-gui.exe` directly instead.
 - **Dismiss-on-blur reentrancy**: our own `guiObj.Destroy()` (called before running the chosen action) synchronously re-triggers `WM_ACTIVATE(inactive)` on that same window, which reenters the very deactivate-handler that's supposed to close the popup on focus loss — and calls `ExitApp()` *before* the actual action (`Run()`, `DllCall()`, ...) executes. Symptom: selecting any item just closed the popup and did nothing else. Fixed with a plain guard: `myGui.Closing := true` right before our own deliberate `Destroy()`, checked by the `WM_ACTIVATE`/`WM_KEYDOWN` handlers before they call `ExitApp()`.
+- **Resizing/repositioning an already-visible window with `Gui.Move(x, y, w, h)` (raw numbers) drifted further off-center each time** — needed when switching between the main menu and the Color Scheme submenu, since they have different row counts and therefore different heights. `Gui.Move()` didn't agree with the coordinates `Gui.Show("x# y# w# h#")` (string options) uses for the same window. Fix: call `Show(...)` again instead of `Move()` to reposition — pass `NoActivate` too, so re-showing an already-active window doesn't fire a spurious `WM_ACTIVATE` that the dismiss-on-blur handler above could mistake for real focus loss.

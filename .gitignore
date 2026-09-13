@@ -5,6 +5,9 @@ QuickMenuLight.exe
 # WebView2 runtime profile/cache (generated on first run)
 WebView2Data/
 
+# QuickMenu Light's persisted color-scheme choice (generated on first run)
+quickmenu_settings.ini
+
 # Claude Code local state
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
