@@ -25,7 +25,15 @@ ACTIVE_THEME := IniRead(SETTINGS_FILE, "Settings", "Theme", "amber")
 if !THEMES.Has(ACTIVE_THEME)
     ACTIVE_THEME := "amber"
 
-baseItems := ["Close All Windows", "Open Terminal", "Open WezTerm", "Lock PC", "Sleep", "Color Scheme"]
+baseItems := [
+  "Open Terminal",
+  "Open WezTerm",
+  "Obsidian",
+  "Color Scheme",
+  "Lock PC",
+  "Sleep",
+  "Close All Windows",
+]
 
 ShowMenu()
 
@@ -213,6 +221,8 @@ RunAction(myGui, item) {
             DllCall("LockWorkStation")
         case "Sleep":
             DllCall("PowrProf\SetSuspendState", "Int", 0, "Int", 0, "Int", 0)
+        case "Obsidian":
+            Run(EnvGet("LOCALAPPDATA") "\Programs\Obsidian\Obsidian.exe")
     }
     ExitApp()
 }

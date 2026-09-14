@@ -31,16 +31,17 @@ quickmenu/
 
 ## Actions
 
-Defined in `RunAction()` in [quickmenu_light.ahk](quickmenu_light.ahk:190):
+Defined in `RunAction()` in [quickmenu_light.ahk](quickmenu_light.ahk:204):
 
 | Menu item | Action |
 |---|---|
-| Close All Windows | Closes every open window (`WinClose` over `WinGetList()`) |
 | Open Terminal | Launches Windows Terminal elevated (`Run("*RunAs wt.exe")`) — triggers a UAC prompt since QuickMenu Light itself runs unelevated |
 | Open WezTerm | Launches WezTerm (`Run("wezterm-gui")` — not `wezterm.exe`, see [Gotchas](#gotchas) below) |
+| Obsidian | Launches Obsidian via its full path under `%LOCALAPPDATA%\Programs\Obsidian\` — it's a per-user Electron install, not on PATH (see [Gotchas](#gotchas)) |
+| Color Scheme | Opens the theme picker described below |
 | Lock PC | Locks the workstation (`LockWorkStation`) |
 | Sleep | Suspends the machine (`SetSuspendState`) |
-| Color Scheme | Opens the theme picker described below |
+| Close All Windows | Closes every open window (`WinClose` over `WinGetList()`) |
 
 To add or change an item, edit the `baseItems` array and the matching `case` in `RunAction()`.
 
@@ -92,3 +93,4 @@ A few non-obvious fixes that shaped this file, in case you're extending it:
 - **`wezterm.exe` is a console-subsystem launcher**, not the GUI app — running it directly leaves a visible console window behind `wezterm-gui.exe` that closes together with the terminal. Launch `wezterm-gui.exe` directly instead.
 - **Dismiss-on-blur reentrancy**: our own `guiObj.Destroy()` (called before running the chosen action) synchronously re-triggers `WM_ACTIVATE(inactive)` on that same window, which reenters the very deactivate-handler that's supposed to close the popup on focus loss — and calls `ExitApp()` *before* the actual action (`Run()`, `DllCall()`, ...) executes. Symptom: selecting any item just closed the popup and did nothing else. Fixed with a plain guard: `myGui.Closing := true` right before our own deliberate `Destroy()`, checked by the `WM_ACTIVATE`/`WM_KEYDOWN` handlers before they call `ExitApp()`.
 - **Resizing/repositioning an already-visible window with `Gui.Move(x, y, w, h)` (raw numbers) drifted further off-center each time** — needed when switching between the main menu and the Color Scheme submenu, since they have different row counts and therefore different heights. `Gui.Move()` didn't agree with the coordinates `Gui.Show("x# y# w# h#")` (string options) uses for the same window. Fix: call `Show(...)` again instead of `Move()` to reposition — pass `NoActivate` too, so re-showing an already-active window doesn't fire a spurious `WM_ACTIVATE` that the dismiss-on-blur handler above could mistake for real focus loss.
+- **`Run("Obsidian.exe")` (bare name) failed silently** — unlike `wt.exe`/`wezterm-gui`, Obsidian isn't a registered PATH alias; as a per-user Electron install it lives under `%LOCALAPPDATA%\Programs\Obsidian\Obsidian.exe` and nowhere Windows' default search order looks. General rule when adding a new app to the menu: first try `where <name>.exe` in a terminal — if that finds nothing, get the exe's real path either from Task Manager (right-click the running process → *Open file location*) or its Start Menu shortcut (*More → Open file location*, or check the shortcut's *Target*), then `Run()` that full path instead of a bare name.
