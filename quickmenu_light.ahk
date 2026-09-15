@@ -15,8 +15,17 @@ THEMES := Map(
     "vintage",  { bg: "F4E9D8", fg: "3E2C23", selBg: "3E2C23", selFg: "F4E9D8", bezel: "3E2C23" },
     "amber",    { bg: "1A0F00", fg: "FFB000", selBg: "FFB000", selFg: "1A0F00", bezel: "FFB000" },
     "green_term", { bg: "0A0A0A", fg: "33FF33", selBg: "33FF33", selFg: "0A0A0A", bezel: "33FF33" },
+    "catppuccin-mocha", { bg: "1E1E2E", fg: "CDD6F4", selBg: "CBA6F7", selFg: "1E1E2E", bezel: "11111B" },
+    "gruvbox",  { bg: "282828", fg: "EBDBB2", selBg: "FE8019", selFg: "282828", bezel: "1D2021" },
 )
-THEME_NAMES := ["game_boy", "vintage", "amber", "green_term"]
+THEME_NAMES := ["game_boy", "vintage", "amber", "green_term", "catppuccin-mocha", "gruvbox"]
+
+; Themes in this set are "global" -- besides restyling QuickMenu Light's own
+; popup like every theme does, picking one also fans out via apply-theme.ps1
+; to Neovim/WezTerm/Starship (see README.md). The 4 retro CRT themes above
+; stay QuickMenu-only on purpose -- they have no natural editor/terminal
+; equivalent, unlike catppuccin-mocha/gruvbox which are already in use there.
+GLOBAL_THEMES := Map("catppuccin-mocha", true, "gruvbox", true)
 
 ; Tema aktif dibaca dari file settings (dibuat/diupdate otomatis lewat menu
 ; "Color Scheme" di bawah) -- kalau belum ada / rusak, fallback ke "amber".
@@ -25,11 +34,19 @@ ACTIVE_THEME := IniRead(SETTINGS_FILE, "Settings", "Theme", "amber")
 if !THEMES.Has(ACTIVE_THEME)
     ACTIVE_THEME := "amber"
 
+; Durasi tetap (bukan input teks bebas) -- konsisten sama gaya keyboard-only
+; (Up/Down/Enter) yang dipakai di seluruh app ini, gak ada Edit control sama
+; sekali. Lihat set-reminder.ps1 buat ValidateSet yang sama persis.
+REMINDER_OPTIONS := ["5 min", "10 min", "15 min", "30 min", "60 min"]
+
 baseItems := [
   "Open Terminal",
   "Open WezTerm",
   "Obsidian",
   "Color Scheme",
+  "Next Wallpaper",
+  "Reminder",
+  "Cancel Reminder",
   "Lock PC",
   "Sleep",
   "Close All Windows",
@@ -38,25 +55,32 @@ baseItems := [
 ShowMenu()
 
 ShowMenu() {
-    global baseItems, THEMES, THEME_NAMES, ACTIVE_THEME, SETTINGS_FILE
+    global baseItems, THEMES, THEME_NAMES, GLOBAL_THEMES, REMINDER_OPTIONS, ACTIVE_THEME, SETTINGS_FILE
 
     margin := 6
     itemH := 26
     w := 300
     x := (A_ScreenWidth - w) / 2
     contentW := w - margin * 2
-    maxRows := Max(baseItems.Length, THEME_NAMES.Length)
+    maxRows := Max(baseItems.Length, THEME_NAMES.Length, REMINDER_OPTIONS.Length)
 
     myGui := Gui("+AlwaysOnTop -Caption +ToolWindow", "QuickMenu Light")
     myGui.OnEvent("Close", (*) => ExitApp())
 
-    ; state.mode "main" = menu utama, "theme" = submenu pilih color scheme.
-    ; state.theme (bukan variabel lokal biasa) supaya bisa diganti dari dalam
-    ; OnEnter() saat pilih tema baru -- closure AHK aman nulis property object,
-    ; tapi tidak dijamin aman nulis-ulang variabel lokal biasa dari nested func.
-    ; ctrls dibuat sebanyak baris TERBANYAK dari kedua daftar, lalu baris yang
-    ; tidak dipakai di-nonaktifkan (Visible=false) tergantung mode aktif.
-    state := { selected: 1, mode: "main", theme: THEMES[ACTIVE_THEME] }
+    ; state.mode "main" = menu utama, "theme" = submenu Color Scheme,
+    ; "reminder" = submenu Reminder, "cancel" = submenu Cancel Reminder.
+    ; state.theme (bukan variabel lokal biasa) supaya bisa diganti dari
+    ; dalam OnEnter() saat pilih tema baru -- closure AHK aman nulis
+    ; property object, tapi tidak dijamin aman nulis-ulang variabel lokal
+    ; biasa dari nested func. state.cancelList sama alasannya -- diisi
+    ; SwitchToCancelMode() sebelum SwitchMode("cancel") dipanggil.
+    ; ctrls dibuat sebanyak baris TERBANYAK dari baseItems/THEME_NAMES/
+    ; REMINDER_OPTIONS (state.cancelList gak ikut dihitung, panjangnya baru
+    ; ketauan runtime -- kalau reminder pending lebih banyak dari itu,
+    ; sisanya gak kegambar; skenario ekstrem yang gak realistis buat tool
+    ; personal ini). Baris yang gak dipakai di-nonaktifkan (Visible=false)
+    ; tergantung mode aktif.
+    state := { selected: 1, mode: "main", theme: THEMES[ACTIVE_THEME], cancelList: [] }
     ; BackColor dipakai sebagai "bezel" di sekeliling item -- Text control di
     ; bawah cuma nutup area x/y=margin..w/h-margin, sisanya nampilin ini.
     myGui.BackColor := state.theme.bezel
@@ -72,6 +96,16 @@ ShowMenu() {
     CurrentList() {
         if state.mode = "main"
             return baseItems
+        if state.mode = "reminder"
+            return REMINDER_OPTIONS
+        if state.mode = "cancel" {
+            if state.cancelList.Length = 0
+                return ["(no reminders set)"]
+            list := []
+            for r in state.cancelList
+                list.Push(r.label)
+            return list
+        }
         list := []
         for name in THEME_NAMES
             list.Push(name = ACTIVE_THEME ? name " (current)" : name)
@@ -115,6 +149,18 @@ ShowMenu() {
         Render()
     }
 
+    ; Satu-satunya tempat di app ini yang NUNGGU PowerShell selesai dulu
+    ; (RunWait, bukan Run() async kayak di tempat lain) -- submenu Cancel
+    ; Reminder butuh daftar reminder yang BENERAN pending SEBELUM bisa
+    ; nentuin tinggi window & isi baris-barisnya, jadi gak bisa async kayak
+    ; fan-out tema/wallpaper. Konsekuensinya: buka submenu ini ada jeda
+    ; kecil (proses powershell.exe baru nyala), beda dari bagian lain
+    ; QuickMenu yang instan.
+    SwitchToCancelMode() {
+        state.cancelList := GetPendingReminders()
+        SwitchMode("cancel")
+    }
+
     OnItemClick(ctrlObj, *) {
         for i, c in ctrls {
             if c = ctrlObj && ctrlObj.Visible {
@@ -137,8 +183,23 @@ ShowMenu() {
         if state.mode = "main" {
             if choice = "Color Scheme"
                 SwitchMode("theme")
+            else if choice = "Reminder"
+                SwitchMode("reminder")
+            else if choice = "Cancel Reminder"
+                SwitchToCancelMode()
             else
                 RunAction(myGui, choice)
+        } else if state.mode = "reminder" {
+            ; Beda dari submenu tema -- pilih durasi langsung nutup popup
+            ; (kayak RunAction), bukan tetap kebuka. Gak ada alasan buat
+            ; "coba-coba beberapa durasi" kayak ganti-ganti tema.
+            SetReminder(myGui, choice)
+        } else if state.mode = "cancel" {
+            ; Placeholder "(no reminders set)" -- Enter gak ngapa-ngapain,
+            ; cuma Escape yang bisa keluar dari sini.
+            if state.cancelList.Length = 0
+                return
+            CancelReminder(myGui, state.cancelList[state.selected].taskName)
         } else {
             ; Terapkan tema langsung (live) & tetap di submenu -- biar bisa
             ; coba-coba beberapa tema dulu sebelum keluar, bukan langsung exit.
@@ -149,6 +210,15 @@ ShowMenu() {
             state.theme := THEMES[chosen]
             myGui.BackColor := state.theme.bezel
             Render()
+            ; Tema "global" (lihat GLOBAL_THEMES di atas) juga fan-out ke
+            ; nvim/WezTerm/Starship lewat apply-theme.ps1. Run() non-blocking
+            ; & Hide, biar submenu ini tetap responsif -- script jalan di
+            ; belakang, gagal-nya (kalau ada) dicatat ke log sendiri, bukan
+            ; ditampilkan di sini.
+            if GLOBAL_THEMES.Has(chosen) {
+                scriptPath := A_ScriptDir "\scripts\apply-theme.ps1"
+                Run('powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' scriptPath '" -Theme ' chosen, , "Hide")
+            }
         }
     }
 
@@ -164,7 +234,7 @@ ShowMenu() {
 
     ; Popup ala mobile/web: cuma Arrow Up/Down & Enter yang "diterima" input --
     ; tombol lain apapun (Esc, tombol Windows, dll) atau klik/pindah fokus ke
-    ; luar window langsung menutup menu. Berlaku di mode manapun (main/theme).
+    ; luar window langsung menutup menu. Berlaku di mode manapun.
     myGui.Closing := false
     readyTick := A_TickCount
     OnMessage(0x0100, CloseOnOtherKey)   ; WM_KEYDOWN
@@ -174,10 +244,11 @@ ShowMenu() {
         static allowed := Map(38, 1, 40, 1, 13, 1)  ; VK_UP, VK_DOWN, VK_RETURN
         if myGui.Closing || allowed.Has(wParam)
             return
-        ; Escape (27) di submenu tema = mundur satu halaman ke menu utama dulu,
-        ; bukan langsung nutup. Escape di menu utama, atau tombol lain apapun
-        ; di mode manapun, tetap langsung nutup seperti biasa.
-        if wParam = 27 && state.mode = "theme" {
+        ; Escape (27) di submenu manapun (mode != "main") = mundur satu
+        ; halaman ke menu utama dulu, bukan langsung nutup. Escape di menu
+        ; utama, atau tombol lain apapun di mode manapun, tetap langsung
+        ; nutup seperti biasa.
+        if wParam = 27 && state.mode != "main" {
             SwitchMode("main")
             return
         }
@@ -223,6 +294,65 @@ RunAction(myGui, item) {
             DllCall("PowrProf\SetSuspendState", "Int", 0, "Int", 0, "Int", 0)
         case "Obsidian":
             Run(EnvGet("LOCALAPPDATA") "\Programs\Obsidian\Obsidian.exe")
+        case "Next Wallpaper":
+            ; Sama persis script yang dipanggil scheduled task tiap 30 menit
+            ; (lihat rotate-wallpaper.ps1) -- ini cuma manggilnya on-demand.
+            ; Hidden & non-blocking: popup ketutup instan, wallpaper ganti
+            ; sepersekian detik kemudian di belakang layar.
+            Run('powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' A_ScriptDir '\scripts\rotate-wallpaper.ps1"', , "Hide")
     }
+    ExitApp()
+}
+
+SetReminder(myGui, choice) {
+    ; Sama pola kayak RunAction() (destroy sendiri dulu, baru ExitApp) --
+    ; lihat komentar RunAction() soal kenapa urutannya begini.
+    myGui.Closing := true
+    myGui.Destroy()
+    ; "5 min" -> "5" -- set-reminder.ps1 punya ValidateSet yang sama persis
+    ; jadi angka ini selalu valid selama REMINDER_OPTIONS gak diubah tanpa
+    ; ikut ubah ValidateSet-nya juga.
+    minutes := StrReplace(choice, " min", "")
+    scriptPath := A_ScriptDir "\scripts\set-reminder.ps1"
+    Run('powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' scriptPath '" -Minutes ' minutes, , "Hide")
+    ExitApp()
+}
+
+; Sinkron (lihat komentar SwitchToCancelMode) -- RunWait dengan "Hide", sama
+; persis mekanisme yang udah kebukti jalan aman di 4 tempat lain (Next
+; Wallpaper, Color Scheme, Reminder, Cancel Reminder sendiri pas eksekusi
+; cancel-nya). list-reminders.ps1 nulis ke file (bukan stdout) -- versi awal
+; fungsi ini pakai WScript.Shell.Exec buat baca StdOut langsung, TAPI Exec()
+; gak punya opsi buat nyembunyiin window sama sekali (beda dari Run()/
+; RunWait() yang punya parameter "Hide"). Window PowerShell yang kelihatan
+; itu curi fokus dari popup QuickMenu, mancing logic dismiss-on-blur
+; (CloseOnDeactivate) nutup popup-nya duluan sebelum daftar reminder-nya
+; sempat kebaca -- gejalanya: klik Cancel Reminder, window pwsh kekilat
+; sebentar, terus QuickMenu-nya ilang. Baca file lewat RunWait+FileRead
+; menghindari masalah ini total karena window-nya emang gak pernah muncul.
+GetPendingReminders() {
+    scriptPath := A_ScriptDir "\scripts\list-reminders.ps1"
+    outFile := A_Temp "\quickmenu-pending-reminders.txt"
+    if FileExist(outFile)
+        FileDelete(outFile)
+    RunWait('powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' scriptPath '"', , "Hide")
+    output := FileExist(outFile) ? FileRead(outFile) : ""
+    reminders := []
+    for line in StrSplit(Trim(output, "`r`n"), "`n") {
+        line := Trim(line, "`r")
+        if line = ""
+            continue
+        parts := StrSplit(line, "|")
+        if parts.Length = 2
+            reminders.Push({ taskName: parts[1], label: parts[2] })
+    }
+    return reminders
+}
+
+CancelReminder(myGui, taskName) {
+    myGui.Closing := true
+    myGui.Destroy()
+    scriptPath := A_ScriptDir "\scripts\cancel-reminder.ps1"
+    Run('powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' scriptPath '" -TaskName "' taskName '"', , "Hide")
     ExitApp()
 }

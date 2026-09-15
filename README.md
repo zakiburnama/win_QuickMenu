@@ -23,15 +23,25 @@ That's it — no runtime, no vendored library, no extra font files.
 
 ```
 quickmenu/
-├── quickmenu_light.ahk      # the whole app: GUI, theming, keyboard handling, actions
-├── QuickMenuLight.exe       # compiled build (see Running it below) — a genuine single file
-├── quickmenu_settings.ini   # remembers your chosen color scheme — created on first use, gitignored
-└── .gitignore
+├── quickmenu_light.ahk        # the whole app: GUI, theming, keyboard handling, actions
+├── QuickMenuLight.exe         # compiled build (see Running it below) — a genuine single file
+├── quickmenu_settings.ini     # remembers your chosen color scheme — created on first use, gitignored
+├── .gitignore
+└── scripts/                   # everything quickmenu_light.ahk shells out to (Run(..., "Hide"))
+    ├── lib.ps1                     # shared helpers (wallpaper P/Invoke, notifications, logging)
+    ├── apply-theme.ps1             # fan-out script for "global" themes — see Color themes below
+    ├── rotate-wallpaper.ps1        # advances the wallpaper on a timer — see Wallpaper slideshow below
+    ├── install-wallpaper-rotation.ps1 # one-time setup: registers the Task Scheduler task that runs it
+    ├── set-reminder.ps1            # registers a one-time reminder — see Reminders below
+    ├── show-reminder.ps1           # fires a reminder's notification, then unregisters its own task
+    ├── list-reminders.ps1          # prints pending reminders — backs the Cancel Reminder submenu
+    ├── cancel-reminder.ps1         # unregisters one pending reminder by task name
+    └── run-hidden.vbs              # launches a sibling .ps1 with zero console-window flash — see Gotchas
 ```
 
 ## Actions
 
-Defined in `RunAction()` in [quickmenu_light.ahk](quickmenu_light.ahk:204):
+Most items are defined in `RunAction()` in [quickmenu_light.ahk](quickmenu_light.ahk:275) — Color Scheme, Reminder, and Cancel Reminder are handled separately (they open a second-level picker instead of firing immediately):
 
 | Menu item | Action |
 |---|---|
@@ -39,6 +49,9 @@ Defined in `RunAction()` in [quickmenu_light.ahk](quickmenu_light.ahk:204):
 | Open WezTerm | Launches WezTerm (`Run("wezterm-gui")` — not `wezterm.exe`, see [Gotchas](#gotchas) below) |
 | Obsidian | Launches Obsidian via its full path under `%LOCALAPPDATA%\Programs\Obsidian\` — it's a per-user Electron install, not on PATH (see [Gotchas](#gotchas)) |
 | Color Scheme | Opens the theme picker described below |
+| Next Wallpaper | Advances the wallpaper by one image, on demand — see [Wallpaper slideshow](#wallpaper-slideshow) below. Same one-shot behavior as Windows' own right-click *Next desktop background*: runs `rotate-wallpaper.ps1` once (hidden, non-blocking) and the popup closes immediately — it doesn't wait around watching it apply |
+| Reminder | Opens the duration picker described in [Reminders](#reminders) below |
+| Cancel Reminder | Opens a live list of pending reminders to cancel — see [Reminders](#reminders) below |
 | Lock PC | Locks the workstation (`LockWorkStation`) |
 | Sleep | Suspends the machine (`SetSuspendState`) |
 | Close All Windows | Closes every open window (`WinClose` over `WinGetList()`) |
@@ -55,10 +68,69 @@ Selecting **Color Scheme** from the menu opens a submenu of the available themes
 | `vintage` | Warm cream paper / dark brown ink |
 | `amber` | Amber CRT terminal (black bg, amber text) |
 | `green_term` | Phosphor-green CRT terminal |
+| `catppuccin-mocha` | Catppuccin Mocha — also restyles nvim/WezTerm/Starship + wallpaper, see [below](#global-themes-nvim--wezterm--starship--wallpaper) |
+| `gruvbox` | Gruvbox Dark — also restyles nvim/WezTerm/Starship + wallpaper, see [below](#global-themes-nvim--wezterm--starship--wallpaper) |
 
 To add a new theme, add an entry to the `THEMES` map and its name to `THEME_NAMES` at the top of [quickmenu_light.ahk](quickmenu_light.ahk:13) — it'll show up in the picker automatically. Each theme is `{ bg, fg, selBg, selFg, bezel }`: normal background/text, selected-item background/text (reverse-video, like an old terminal menu highlight), and the window's own background color (shows as a thin border/bezel around the item list) — all hex, no `#` prefix.
 
 The font is the classic Windows raster font `Terminal`, chosen specifically because it renders as blocky pixels at small sizes with zero extra files — change the font name/size in `Render()` if you want something else.
+
+### Global themes (nvim / WezTerm / Starship / wallpaper)
+
+Two of the six entries — `catppuccin-mocha` and `gruvbox` — are **global**: picking one restyles the QuickMenu Light popup like any other theme *and* fans out to the rest of the terminal/editor setup (plus the desktop wallpaper) in one shot. The other four (`game_boy`, `vintage`, `amber`, `green_term`) are retro CRT looks with no natural editor/terminal equivalent, so they stay QuickMenu-only on purpose.
+
+The fan-out is [apply-theme.ps1](scripts/apply-theme.ps1), launched hidden and non-blocking (`Run(..., "Hide")`) from `OnEnter()` whenever the chosen theme is in the `GLOBAL_THEMES` set. It touches four things, all hardcoded machine-specific paths (this is a personal single-user tool, not a portable one):
+
+| Tool | File | How |
+|---|---|---|
+| Neovim | `%LOCALAPPDATA%\Temp\nvim\theme.txt` | Whole-file overwrite with the colorscheme name — the same file `theme.lua` (in the [dotfiles](https://github.com/zakiburnama/dotfiles) repo, `nvim/.config/nvim/lua/config/theme.lua`) reads on startup and writes on every `:colorscheme` change, so this is just "pretend the user ran `:colorscheme x`". Takes effect on next nvim launch, **not** in an already-running session. |
+| Starship | `dotfiles/starship/.config/starship.toml` | Replaces the contents between `# BEGIN THEME PALETTE` / `# END THEME PALETTE` markers. The palette table is permanently named `[palettes.active]` (`palette = 'active'` never changes) specifically so the script never has to hunt for a varying table name — it only ever swaps what's *inside* those markers. Static TOML, no live reload: the new prompt appears on the next shell/tab, not the current one. |
+| WezTerm | `dotfiles/wezterm/.config/wezterm/wezterm.lua` | Replaces the contents between `-- BEGIN THEME COLORS` / `-- END THEME COLORS` markers with a full new `config.colors = { ... }` block. WezTerm auto-reloads its config on file change, so this one *does* apply live to already-open windows. |
+| Desktop wallpaper | `dotfiles/wallpapers/<theme>/` | Sets the desktop wallpaper (Fill style) to the alphabetically-first `.jpg`/`.jpeg`/`.png`/`.bmp` found in that theme's folder, via the `SystemParametersInfo` Win32 API (shared with `rotate-wallpaper.ps1`, see below). Applies live immediately. Drop your own image(s) in `dotfiles/wallpapers/catppuccin-mocha/` and `dotfiles/wallpapers/gruvbox/` — an empty or missing folder is treated as "not set up yet" and silently skipped, not an error. With more than one image in a folder, prefix filenames (e.g. `01-foo.jpg`) to control which one shows first — the pick is always deterministic (alphabetical), never random. |
+
+Adding a third global theme: add an entry to the `$Themes` registry and the `ValidateSet` in `scripts/apply-theme.ps1`, a matching `THEMES`/`GLOBAL_THEMES` entry in `quickmenu_light.ahk`, and a `dotfiles/wallpapers/<theme>/` folder if you want wallpaper support for it too. The marker-delimited approach means the two dotfiles only ever get a wholesale block swap — never partial line edits — so a bad/missing marker fails loudly (`Set-MarkedBlock` throws if it doesn't find exactly one match) instead of silently corrupting the file.
+
+Failures aren't shown anywhere (the script runs with no window) — check `%TEMP%\quickmenu-apply-theme.log` if a global theme pick didn't seem to take effect somewhere.
+
+### Wallpaper slideshow
+
+`apply-theme.ps1` only ever shows the *first* image in a theme's folder. [rotate-wallpaper.ps1](scripts/rotate-wallpaper.ps1) is what cycles through the rest, two ways:
+- **Automatically**, every 30 min, via a Windows Scheduled Task (`QuickMenu Light - Wallpaper Rotation`, registered once via [install-wallpaper-rotation.ps1](scripts/install-wallpaper-rotation.ps1)) — it keeps advancing in the background without any process sitting idle in memory between ticks: Task Scheduler briefly spawns `powershell.exe`, it runs for well under a second, and exits.
+- **On demand**, via the **Next Wallpaper** menu item — same script, same one-shot run, just triggered by `Run(..., "Hide")` from `quickmenu_light.ahk` instead of Task Scheduler. Picking it doesn't reset or interfere with the 30-min timer; it's the same rotation state (`quickmenu-wallpaper-rotation.json`) either way, so a manual "next" just makes the following scheduled tick advance from wherever you left it.
+
+How it knows what to rotate:
+- **Which theme**: `apply-theme.ps1` writes the active theme's name to `%TEMP%\quickmenu-active-theme.txt` every time a global theme is picked. `rotate-wallpaper.ps1` just reads that — it has no idea about `quickmenu_light.ahk` or the `$Themes` registry at all.
+- **Which image**: `%TEMP%\quickmenu-wallpaper-rotation.json` remembers `{theme, lastFile}`. Each tick, if the saved theme still matches the active one, it advances to the next file alphabetically (wrapping around at the end); if the theme changed (or the saved filename no longer exists), it restarts at image #1 for the new folder instead of guessing.
+
+Setup (already done once on this machine — only needed again after moving the repo, since the task's action hardcodes the script's path), run from the repo root:
+```powershell
+.\scripts\install-wallpaper-rotation.ps1
+```
+To stop it: `Unregister-ScheduledTask -TaskName 'QuickMenu Light - Wallpaper Rotation'`. To check on it: `Get-ScheduledTask -TaskName 'QuickMenu Light - Wallpaper Rotation' | Get-ScheduledTaskInfo` (see `LastTaskResult` — `0` means success) or tail `%TEMP%\quickmenu-apply-theme.log`, which both scripts write to.
+
+The task runs as the current user, not SYSTEM — SYSTEM runs in session 0 and can't touch the interactive desktop's wallpaper, so `Register-ScheduledTask` deliberately leaves `-User`/`-Principal` at its default (current user, standard rights, no elevation needed).
+
+### Reminders
+
+Selecting **Reminder** opens a submenu of fixed durations — `5 min`, `10 min`, `15 min`, `30 min`, `60 min`. Unlike Color Scheme, picking one closes the popup right away instead of staying open — there's no "try a few" use case for a timer. Press Escape to step back to the main menu without setting anything.
+
+Durations are a fixed list, not free text — this app has no text-input control anywhere (no `Edit` box, nothing to type into), and a reminder timer didn't seem worth being the first thing that breaks that. Want a different set of durations? Edit `REMINDER_OPTIONS` in [quickmenu_light.ahk](quickmenu_light.ahk:40) *and* the matching `[ValidateSet(...)]` in [set-reminder.ps1](scripts/set-reminder.ps1) — they have to stay in sync, since the AHK side just strips `" min"` off the chosen label and passes the number straight through.
+
+Picking a duration runs [set-reminder.ps1](scripts/set-reminder.ps1) (hidden, non-blocking, same `Run(..., "Hide")` pattern as everything else here), which:
+1. Registers a **one-time** Task Scheduler task (unique name, timestamped, so overlapping reminders don't collide) that fires [show-reminder.ps1](scripts/show-reminder.ps1) at the target time — same "nothing idle in memory while waiting" reasoning as the wallpaper rotation task.
+2. Shows an immediate confirmation balloon ("Reminder set for 3:45 PM (10 min)") so you know it actually took, since the popup itself gives no feedback before closing.
+
+When the task fires, `show-reminder.ps1` shows a balloon + beep ("Reminder: 10 minute(s) is up.") and then **unregisters its own task** — Task Scheduler doesn't clean up one-time tasks on its own, so without this step you'd accumulate a stale task per reminder forever.
+
+Reminders survive a restart or sleep — Task Scheduler tasks are stored on disk, not in memory, and `-StartWhenAvailable` (set when the task is registered) means a reminder that should've fired while the machine was off/asleep fires as soon as it's back, instead of being silently skipped.
+
+**Checking what's pending, or cancelling one**: selecting **Cancel Reminder** runs [list-reminders.ps1](scripts/list-reminders.ps1) and shows each pending reminder as `"10 min -> 3:45 PM"` (or `(no reminders set)` if there's nothing pending — picking that does nothing, only Escape backs out). Picking one runs [cancel-reminder.ps1](scripts/cancel-reminder.ps1) with that reminder's exact task name, which `Unregister-ScheduledTask`s it and confirms with a notification.
+
+This is the **one place in the app that waits on PowerShell** instead of firing it hidden/non-blocking — `list-reminders.ps1` has to actually run and return its output *before* the submenu can be sized and drawn, so opening Cancel Reminder has a brief (~0.2–0.4s) delay where the rest of QuickMenu Light is instant. `quickmenu_light.ahk`'s `GetPendingReminders()` gets that output via `ComObject("WScript.Shell").Exec(...).StdOut.ReadAll()` rather than `Run()` — the only spot in this codebase using that pattern.
+
+You can check the same thing manually any time without opening QuickMenu Light: `Get-ScheduledTask | Where-Object { $_.TaskName -like 'QuickMenu Light - Reminder *' }`.
+
+Both scripts log to `%TEMP%\quickmenu-apply-theme.log`, same file every other script here uses.
 
 ## Running it
 
@@ -94,3 +166,5 @@ A few non-obvious fixes that shaped this file, in case you're extending it:
 - **Dismiss-on-blur reentrancy**: our own `guiObj.Destroy()` (called before running the chosen action) synchronously re-triggers `WM_ACTIVATE(inactive)` on that same window, which reenters the very deactivate-handler that's supposed to close the popup on focus loss — and calls `ExitApp()` *before* the actual action (`Run()`, `DllCall()`, ...) executes. Symptom: selecting any item just closed the popup and did nothing else. Fixed with a plain guard: `myGui.Closing := true` right before our own deliberate `Destroy()`, checked by the `WM_ACTIVATE`/`WM_KEYDOWN` handlers before they call `ExitApp()`.
 - **Resizing/repositioning an already-visible window with `Gui.Move(x, y, w, h)` (raw numbers) drifted further off-center each time** — needed when switching between the main menu and the Color Scheme submenu, since they have different row counts and therefore different heights. `Gui.Move()` didn't agree with the coordinates `Gui.Show("x# y# w# h#")` (string options) uses for the same window. Fix: call `Show(...)` again instead of `Move()` to reposition — pass `NoActivate` too, so re-showing an already-active window doesn't fire a spurious `WM_ACTIVATE` that the dismiss-on-blur handler above could mistake for real focus loss.
 - **`Run("Obsidian.exe")` (bare name) failed silently** — unlike `wt.exe`/`wezterm-gui`, Obsidian isn't a registered PATH alias; as a per-user Electron install it lives under `%LOCALAPPDATA%\Programs\Obsidian\Obsidian.exe` and nowhere Windows' default search order looks. General rule when adding a new app to the menu: first try `where <name>.exe` in a terminal — if that finds nothing, get the exe's real path either from Task Manager (right-click the running process → *Open file location*) or its Start Menu shortcut (*More → Open file location*, or check the shortcut's *Target*), then `Run()` that full path instead of a bare name.
+- **A console window briefly flashed on screen every 30 min** (whenever the wallpaper rotation task fired) even though its action passed `-WindowStyle Hidden` to `powershell.exe`. Root cause: `powershell.exe` is a *console-subsystem* app — Windows creates the console host window (`conhost.exe`) as part of process startup, before PowerShell's own code gets a chance to read `-WindowStyle Hidden` and hide it. That window-creation-then-hide sequencing is what flashes; it's a known PowerShell behavior; see [PowerShell/PowerShell#3028](https://github.com/PowerShell/PowerShell/issues/3028). `-Hidden` on `New-ScheduledTaskSettingsSet` does **not** fix this — that setting only controls the task's visibility inside Task Scheduler's own UI, unrelated to the launched process's window. Fix: [run-hidden.vbs](scripts/run-hidden.vbs) — launched via `wscript.exe` (a *GUI-subsystem* app, so no console window is ever created at all) instead of calling `powershell.exe` directly, it re-launches the target script as a genuinely invisible detached process (`WScript.Shell.Run(cmd, 0, False)`). Used by both Task Scheduler-triggered scripts ([install-wallpaper-rotation.ps1](scripts/install-wallpaper-rotation.ps1), and the one-time task [set-reminder.ps1](scripts/set-reminder.ps1) registers) — not needed for anything QuickMenu Light launches directly via AHK's `Run(..., "Hide")`, since that wasn't where the reported flashing was coming from.
+- **Cancel Reminder closed the whole popup instead of opening**: `GetPendingReminders()` originally used `ComObject("WScript.Shell").Exec(...)` + `StdOut.ReadAll()` to run `list-reminders.ps1` synchronously and capture its output. Unlike `.Run()`, WSH's `.Exec()` method has **no window-hiding option at all** — the spawned `powershell.exe` console was always visible, if briefly. That window stealing the foreground fired `WM_ACTIVATE(inactive)` on the QuickMenu popup, which the dismiss-on-blur handler (`CloseOnDeactivate`, see above) correctly-but-unhelpfully read as "user clicked away" and closed the popup with `ExitApp()` — before `GetPendingReminders()` even returned. Symptom: click Cancel Reminder, a `powershell.exe` window flashes, the whole popup vanishes instead of showing the list. Fix: `list-reminders.ps1` now writes its output to a file (`%TEMP%\quickmenu-pending-reminders.txt`) instead of stdout, and `GetPendingReminders()` reads it back via `RunWait(cmd, , "Hide")` + `FileRead()` — the same `Run()`/`RunWait()` `"Hide"` mechanism already proven to work everywhere else in this app, which `.Exec()` simply doesn't offer.
